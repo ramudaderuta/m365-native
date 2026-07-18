@@ -23,7 +23,7 @@ func parseContent(c any) (string, []chathub.Attachment) {
 			continue
 		}
 		switch m["type"] {
-		case "text":
+		case "text", "input_text", "output_text":
 			if v, ok := m["text"].(string); ok {
 				text.WriteString(v)
 			}
