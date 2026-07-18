@@ -6,7 +6,7 @@ description: Contract for repository-operating-docs.
 
 ## Context
 
-- Current repo/worktree: `<workspace-root>/work/m365-native` on the `main` branch.
+- Current repo/worktree: `<workspace-root>/m365-native` on the `main` branch.
 - Relevant source paths: `README.md`, `AGENTS.md`, `cmd/server/main.go`, `internal/auth/`, `internal/chathub/`, `internal/web/`, `Dockerfile`, and `docker-compose.yml`.
 - Relevant archived scope references: none.
 

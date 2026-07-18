@@ -28,7 +28,7 @@ The tracked Compose file uses a localhost port binding as the safe upstream defa
 
 ## Decision
 
-Keep `docker-compose.yml` at `127.0.0.1:4141:4141`. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, the local override replaces the port list with `0.0.0.0:4141:4141` using the Compose `!override` tag.
+Keep `docker-compose.yml` loopback-only. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, an untracked local override replaces the port list using the Compose `!override` tag.
 
 ## Rationale
 

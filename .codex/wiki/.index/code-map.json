@@ -19,6 +19,7 @@
     "anchors": [],
     "definition_pages": [],
     "pages": [
+      ".codex/wiki/debugging/docker-admin-secret-permissions.md",
       ".codex/wiki/debugging/docker-web-assets.md",
       ".codex/wiki/decisions/local-compose-overrides.md",
       ".codex/wiki/how-to/container-operation.md"
@@ -41,10 +42,28 @@
     ],
     "symbols": {}
   },
+  "deploy/nginx/nginx.conf": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/how-to/container-operation.md"
+    ],
+    "symbols": {}
+  },
+  "deploy/nginx/server.conf": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/how-to/container-operation.md"
+    ],
+    "symbols": {}
+  },
   "docker-compose.yml": {
     "anchors": [],
     "definition_pages": [],
     "pages": [
+      ".codex/wiki/debugging/docker-admin-secret-permissions.md",
+      ".codex/wiki/debugging/docker-state-directory-permissions.md",
       ".codex/wiki/decisions/local-compose-overrides.md",
       ".codex/wiki/how-to/container-operation.md",
       ".codex/wiki/reference/credential-and-state-handling.md"
@@ -56,6 +75,7 @@
     "definition_pages": [],
     "pages": [
       ".codex/wiki/concepts/gateway-architecture.md",
+      ".codex/wiki/debugging/docker-state-directory-permissions.md",
       ".codex/wiki/reference/credential-and-state-handling.md"
     ],
     "symbols": {}
@@ -72,7 +92,32 @@
     "anchors": [],
     "definition_pages": [],
     "pages": [
+      ".codex/wiki/debugging/docker-admin-secret-permissions.md",
       ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/codex_catalog.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/codex_responses.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/codex_usage.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
     ],
     "symbols": {}
   },
@@ -80,7 +125,24 @@
     "anchors": [],
     "definition_pages": [],
     "pages": [
+      ".codex/wiki/debugging/docker-state-directory-permissions.md",
       ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/protocol_handlers.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/protocol_response.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
     ],
     "symbols": {}
   },

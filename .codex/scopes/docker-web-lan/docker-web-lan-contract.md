@@ -6,7 +6,7 @@ description: Contract for docker-web-lan.
 
 ## Context
 
-- Current repo/worktree: `<workspace-root>/work/m365-native` on `main`.
+- Current repo/worktree: `<workspace-root>/m365-native` on `main`.
 - Relevant source paths: `Dockerfile`, `docker-compose.yml`, `web/login.html`, and `web/index.html`.
 - Relevant archived scope references: none.
 
@@ -14,12 +14,12 @@ description: Contract for docker-web-lan.
 
 - The runtime image copied only `/app/m365-native`; `internal/web/security_http.go` opens `web/login.html` and `web/index.html` relative to `/app`.
 - `GET /` returned HTTP 500 with `web interface unavailable`; the container was otherwise listening on port 4141.
-- The Compose file was locally changed to bind `0.0.0.0:4141`, which would create an upstream-merge-sensitive deployment preference.
+- The Compose file had a local all-interface binding, which would create an upstream-merge-sensitive deployment preference.
 
 ## Outcome
 
-- Done when: the runtime image contains `/app/web`, Compose preserves its upstream localhost default, and a local override exposes port 4141 to the LAN.
-- User-visible/runtime state: `GET /` returns the login page; port 4141 listens on all IPv4 interfaces when the local override is active.
+- Done when: the runtime image contains `/app/web`, Compose preserves its upstream loopback-only default, and an untracked local override can expose the service to the LAN.
+- User-visible/runtime state: `GET /` returns the login page; the local override controls LAN exposure outside tracked configuration.
 - Durable knowledge to preserve: web files are runtime assets rather than embedded binary resources; LAN exposure is a local deployment decision.
 
 ## Goals / Non-goals
@@ -67,7 +67,7 @@ Forbidden changes:
 - `docker compose up -d --build`
 - `docker compose ps`
 - `ss -ltn 'sport = :4141'`
-- `curl --fail --max-time 5 http://127.0.0.1:4141/`
+- local HTTP smoke test against the configured loopback listener
 - `docker exec` assertion that `/app/web/login.html` and `/app/web/index.html` exist
 
 ## Escalation triggers
@@ -89,6 +89,6 @@ Forbidden changes:
 
 - 2026-07-18: Scope created after reproducing the missing-web-assets failure and confirming the current Compose port binding.
 - 2026-07-18: Added `COPY --from=build /src/web /app/web` to `Dockerfile`.
-- 2026-07-18: Restored the tracked Compose file to localhost publishing and added ignored `docker-compose.override.yml` with a `!override` port list for `0.0.0.0:4141`.
-- 2026-07-18: `docker compose config` confirmed one published port (`0.0.0.0:4141`). `docker compose up -d --build` passed. The container contains both required HTML files, `GET /` returned HTTP 200, and `ss` confirmed the LAN listener.
+- 2026-07-18: Restored the tracked Compose file to loopback-only publishing and added an ignored `docker-compose.override.yml` with a replacement port list.
+- 2026-07-18: `docker compose config` confirmed one published port. `docker compose up -d --build` passed. The container contains both required HTML files, `GET /` returned HTTP 200, and the configured listener was verified.
 - 2026-07-18: User authorized committing and pushing the validated tracked changes to the `ramudaderuta/m365-native` fork.

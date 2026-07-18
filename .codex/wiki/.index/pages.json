@@ -14,6 +14,26 @@
         "role": "related"
       },
       {
+        "path": "internal/web/codex_catalog.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/codex_responses.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/codex_usage.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/protocol_handlers.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/protocol_response.go",
+        "role": "related"
+      },
+      {
         "path": "internal/chathub/client.go",
         "role": "related"
       },
@@ -23,10 +43,60 @@
       }
     ],
     "scope": "repository-operating-docs",
-    "search_text": "Gateway architecture and request flow\nconcept\ncurrent\nrepository-operating-docs\n{\"title\": \"Gateway architecture and request flow\", \"type\": \"concept\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"cmd/server/main.go\", \"internal/web/server.go\", \"internal/chathub/client.go\", \"internal/auth/cache.go\"], \"source_docs\": [\"README.md\"], \"tags\": [\"architecture\", \"gateway\", \"chathub\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:33:43Z\"}\ncmd/server/main.go related internal/web/server.go related internal/chathub/client.go related internal/auth/cache.go related\n\n\n# Gateway architecture and request flow\n\n## Scope\n\n`m365-native` is a local HTTP gateway for authorized Microsoft 365 Copilot sessions. It serves a web console and OpenAI- and Anthropic-compatible APIs; it is not an authentication bypass.\n\n## Request flow\n\n`cmd/server/main.go` loads persisted startup settings, constructs `web.Server`, and starts the HTTP listener. `internal/web/server.go` owns routing, request IDs, security headers, administrator-session checks, API-key validation, conversation handling, and protocol adapters. Requests that need model responses are translated into ChatHub requests by `internal/chathub/`, which maintains the upstream WebSocket interaction. `internal/auth/` stores and refreshes authorized account tokens.\n\n## Boundaries\n\nThe web package is the public HTTP boundary. The ChatHub package is the upstream protocol boundary. The auth package owns account-token persistence and refresh. Keep protocol-specific transformations in `internal/web/` rather than leaking HTTP concerns into `internal/chathub/`.\n\n## Verification\n\nRun `go test ./...`, `go vet ./...`, and `go build ./...` after Go changes. Use `docker compose up -d --build` plus a local HTTP smoke test for container changes.\n\n## Related knowledge\n\nSee the operations and security pages for container state, deployment boundaries, and credential handling.\n",
+    "search_text": "Gateway architecture and request flow\nconcept\ncurrent\nrepository-operating-docs\n{\"title\": \"Gateway architecture and request flow\", \"type\": \"concept\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [\"codex-responses-compatibility\"], \"related_files\": [\"cmd/server/main.go\", \"internal/web/server.go\", \"internal/web/codex_catalog.go\", \"internal/web/codex_responses.go\", \"internal/web/codex_usage.go\", \"internal/web/protocol_handlers.go\", \"internal/web/protocol_response.go\", \"internal/chathub/client.go\", \"internal/auth/cache.go\"], \"source_docs\": [\"README.md\"], \"tags\": [\"architecture\", \"gateway\", \"chathub\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T12:10:00Z\"}\ncmd/server/main.go related internal/web/server.go related internal/web/codex_catalog.go related internal/web/codex_responses.go related internal/web/codex_usage.go related internal/web/protocol_handlers.go related internal/web/protocol_response.go related internal/chathub/client.go related internal/auth/cache.go related\n\n\n# Gateway architecture and request flow\n\n## Scope\n\n`m365-native` is a local HTTP gateway for authorized Microsoft 365 Copilot sessions. It serves a web console and OpenAI- and Anthropic-compatible APIs; it is not an authentication bypass.\n\n## Request flow\n\n`cmd/server/main.go` loads persisted startup settings, constructs `web.Server`, and starts the HTTP listener. `internal/web/server.go` owns routing, request IDs, security headers, administrator-session checks, API-key validation, conversation handling, and protocol adapters. Requests that need model responses are translated into ChatHub requests by `internal/chathub/`, which maintains the upstream WebSocket interaction. `internal/auth/` stores and refreshes authorized account tokens.\n\n## Boundaries\n\nThe web package is the public HTTP boundary. The ChatHub package is the upstream protocol boundary. The auth package owns account-token persistence and refresh. Keep protocol-specific transformations in `internal/web/` rather than leaking HTTP concerns into `internal/chathub/`.\n\n## Responses compatibility\n\nThe OpenAI Responses adapter accepts string input and typed content blocks. In\nparticular, Codex sends text as `input_text`, which is normalized alongside the\ngateway's existing `text` and `output_text` blocks before ChatHub adaptation.\nResponses image content may use either a nested `image_url.url` object or a\ndirect `image_url` string; both forms become ChatHub attachments without\nchanging the Codex text-block behavior.\nThe model catalog preserves OpenAI's `data` list and also exposes a `models`\nalias required by Codex v0.144.5. Every catalog entry must provide stable\n`id`, `slug`, `display_name`, and `supported_reasoning_levels` values; this\ngateway uses the model ID for both derived identifier fields. Codex requires\nboth advertised reasoning fields to contain preset objects with `effort` and\n`description`, not bare effort strings; the gateway mirrors that structure and\nuses `medium` as its explicit default. The same local catalog also advertises\nCodex execution metadata such as `shell_type`, visibility, API availability,\npriority, tier lists, tool capabilities, and truncation settings. This metadata\nis not forwarded to ChatHub. Codex also requires `base_instructions` and a\nmatching `model_messages.instructions_template`; the gateway supplies a concise\nmaintained template rather than copying a bundled local prompt. The catalog\nresponse itself is not forwarded to ChatHub, although Codex may include this\ntemplate in later request instructions that use the normal upstream flow.\nAdministrator settings provide a single mapping contract for client-selected\nmodel IDs: each mapping publishes a compatible catalog record and selects a\nvalidated ChatHub tone for both Chat Completions and Responses calls. The UI\nsuggests the models currently bundled with Codex, preloads its GPT-5.6 Sol,\nTerra, and Luna variants, and allows custom client aliases. It never advertises\nthe bundled model's local context size over the configured gateway limit.\n\nCodex-specific code is organized inside `internal/web/` as\n`codex_catalog.go`, `codex_usage.go`, and `codex_responses.go`. They remain in\nthe `web` package so they can use the HTTP layer's unexported request and\nsettings types without introducing exports or a package cycle. Generic OpenAI\nand Anthropic handling remains in its protocol files, and ChatHub remains\nunaware of Codex-specific metadata.\nStreaming Responses calls must end in a terminal `response.completed` or\n`response.failed` event; never close after only `response.created`, because\nCodex treats that as a transport disconnect. ChatHub does not report provider\ntoken counts, so Responses completion events carry clearly marked local usage\nestimates for client context-progress displays rather than billing or quota\ndecisions. GPT route aliases use the embedded `o200k_base` vocabulary from\n`tiktoken-go/tokenizer`; this avoids runtime BPE downloads and identifies the\nresult as `tiktoken_o200k_base_estimate`. Claude and unknown route aliases\nretain a separately identified heuristic fallback. Usage estimates include\nvisible message framing, tool schemas, tool choice, tool calls, and completion\nframing so client context and auto-compaction thresholds are not systematically\nlow for tool-heavy turns. Hidden upstream prompts, image tokenization, and\nprovider reasoning tokens remain unavailable.\n\n## Verification\n\nRun `go test ./...`, `go vet ./...`, and `go build ./...` after Go changes. Use `docker compose up -d --build` plus a local HTTP smoke test for container changes.\n\n## Related knowledge\n\nSee the operations and security pages for container state, deployment boundaries, and credential handling.\n",
     "status": "current",
     "title": "Gateway architecture and request flow",
     "type": "concept"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Docker administrator secret permission failure ## Symptom The administrator password stored in `secrets/m365_admin_password` cannot log in, while the initial password still works and the login page requests an immediate password change. ## Cause The final image runs as the non-root `m365` user (UID/GID `100:101`), and Compose bind-mounts the host password file read-only at `/run/secrets/m365_admin_password`. Bind mounts preserve host ownership and mode. A host file owned by another user wit...",
+    "path": ".codex/wiki/debugging/docker-admin-secret-permissions.md",
+    "related_files": [
+      {
+        "path": "Dockerfile",
+        "role": "related"
+      },
+      {
+        "path": "docker-compose.yml",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/admin_security.go",
+        "role": "related"
+      }
+    ],
+    "scope": "repository-operating-docs",
+    "search_text": "Docker administrator secret permission failure\ndebugging\ncurrent\nrepository-operating-docs\n{\"title\": \"Docker administrator secret permission failure\", \"type\": \"debugging\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"Dockerfile\", \"docker-compose.yml\", \"internal/web/admin_security.go\"], \"source_docs\": [], \"tags\": [\"docker\", \"credentials\", \"permissions\", \"debugging\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:55:31Z\"}\nDockerfile related docker-compose.yml related internal/web/admin_security.go related\n\n\n# Docker administrator secret permission failure\n\n## Symptom\n\nThe administrator password stored in `secrets/m365_admin_password` cannot log in, while the initial password still works and the login page requests an immediate password change.\n\n## Cause\n\nThe final image runs as the non-root `m365` user (UID/GID `100:101`), and Compose bind-mounts the host password file read-only at `/run/secrets/m365_admin_password`. Bind mounts preserve host ownership and mode. A host file owned by another user with mode 0600 is unreadable to `m365`; the password loader then falls back to its bootstrap password.\n\n## Remediation\n\nKeep the password file non-empty and secret. Set its owner to UID/GID `100:101` and mode 0600, then recreate the service so it reloads the file. This owner change means later manual rotation needs an authorized privileged edit or a deliberate ownership handoff; never loosen the file to world-readable permissions.\n\n## Probe\n\nCheck the host file's numeric owner and mode with `stat` without reading its contents. In the container, test read access as `m365` using `test -r /run/secrets/m365_admin_password`; do not print, hash, copy, or log the password. Confirm the application is running and the root page returns HTTP 200 after recreation.\n",
+    "status": "current",
+    "title": "Docker administrator secret permission failure",
+    "type": "debugging"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Docker bind-mounted state write failure # Docker bind-mounted state write failure ## Symptom Accounts or API keys appear during an active session but are absent after a container restart or recreation. ## Cause The final image runs as the non-root `m365` user (UID/GID `100:101`). Compose bind mounts preserve host ownership and mode. If the directory mounted at `/data` is not writable by that identity, the token and account stores cannot persist. The API-key store currently ignores write err...",
+    "path": ".codex/wiki/debugging/docker-state-directory-permissions.md",
+    "related_files": [
+      {
+        "path": "docker-compose.yml",
+        "role": "related"
+      },
+      {
+        "path": "internal/auth/cache.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/keys.go",
+        "role": "related"
+      }
+    ],
+    "scope": "repository-operating-docs",
+    "search_text": "Docker bind-mounted state write failure\ndebugging\ncurrent\nrepository-operating-docs\n{\"title\": \"Docker bind-mounted state write failure\", \"type\": \"debugging\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"docker-compose.yml\", \"internal/auth/cache.go\", \"internal/web/keys.go\"], \"source_docs\": [], \"tags\": [\"docker\", \"persistence\", \"permissions\", \"debugging\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T10:26:32Z\"}\ndocker-compose.yml related internal/auth/cache.go related internal/web/keys.go related\n\n\n# Docker bind-mounted state write failure\n\n# Docker bind-mounted state write failure\n\n## Symptom\n\nAccounts or API keys appear during an active session but are absent after a container restart or recreation.\n\n## Cause\n\nThe final image runs as the non-root `m365` user (UID/GID `100:101`). Compose bind mounts preserve host ownership and mode. If the directory mounted at `/data` is not writable by that identity, the token and account stores cannot persist. The API-key store currently ignores write errors, so an in-memory key can appear valid until the process restarts.\n\n## Remediation\n\nBefore first use, assign the state directory to UID/GID `100:101` while retaining restrictive permissions. Do not replace the bind mount with container-local storage; rebuilding or recreating a container discards such storage. Existing state files must be restored from a backup before recreating keys or accounts.\n\n## Probe\n\nInspect only numeric ownership and mode with `stat`. From the running container, test that the `m365` user can create and remove a temporary probe file in `/data`; do not read or print state-file contents. Confirm the host directory remains mounted at `/data` after a rebuild.\n",
+    "status": "current",
+    "title": "Docker bind-mounted state write failure",
+    "type": "debugging"
   },
   {
     "anchor_count": 0,
@@ -56,7 +126,7 @@
   {
     "anchor_count": 0,
     "code_anchors": [],
-    "excerpt": "# Local Compose overrides own LAN exposure ## Context The tracked Compose file uses a localhost port binding as the safe upstream default. This workstation needs optional LAN access without turning that host-specific choice into a merge conflict during upstream synchronization. ## Decision Keep `docker-compose.yml` at `127.0.0.1:4141:4141`. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, the local override replaces the port list with `0.0.0.0:4141:4141` using t...",
+    "excerpt": "# Local Compose overrides own LAN exposure ## Context The tracked Compose file uses a localhost port binding as the safe upstream default. This workstation needs optional LAN access without turning that host-specific choice into a merge conflict during upstream synchronization. ## Decision Keep `docker-compose.yml` loopback-only. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, an untracked local override replaces the port list using the Compose `!override` tag....",
     "path": ".codex/wiki/decisions/local-compose-overrides.md",
     "related_files": [
       {
@@ -73,7 +143,7 @@
       }
     ],
     "scope": "docker-web-lan",
-    "search_text": "Local Compose overrides own LAN exposure\ndecision\naccepted\ndocker-web-lan\n{\"title\": \"Local Compose overrides own LAN exposure\", \"type\": \"decision\", \"status\": \"accepted\", \"scope\": \"docker-web-lan\", \"related_scopes\": [\"repository-operating-docs\"], \"related_files\": [\"docker-compose.yml\", \"Dockerfile\", \".gitignore\"], \"source_docs\": [\".codex/scopes/docker-web-lan/docker-web-lan-contract.md\"], \"tags\": [\"docker\", \"lan\", \"deployment\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:37Z\", \"decision_date\": \"2026-07-18\"}\ndocker-compose.yml related Dockerfile related .gitignore related\n\n\n# Local Compose overrides own LAN exposure\n\n## Context\n\nThe tracked Compose file uses a localhost port binding as the safe upstream default. This workstation needs optional LAN access without turning that host-specific choice into a merge conflict during upstream synchronization.\n\n## Decision\n\nKeep `docker-compose.yml` at `127.0.0.1:4141:4141`. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, the local override replaces the port list with `0.0.0.0:4141:4141` using the Compose `!override` tag.\n\n## Rationale\n\nA normal Compose override merges port entries, producing duplicate host bindings and a startup failure. Replacing the list gives one effective published port while isolating the deployment choice from the tracked upstream configuration.\n\n## Consequences\n\nThe override is intentionally local and is not committed. Operators must verify the effective configuration and listener after changing it. LAN exposure remains protected only by the application authentication and host network controls, so TLS and edge access control are required before any broader exposure.\n",
+    "search_text": "Local Compose overrides own LAN exposure\ndecision\naccepted\ndocker-web-lan\n{\"title\": \"Local Compose overrides own LAN exposure\", \"type\": \"decision\", \"status\": \"accepted\", \"scope\": \"docker-web-lan\", \"related_scopes\": [\"repository-operating-docs\"], \"related_files\": [\"docker-compose.yml\", \"Dockerfile\", \".gitignore\"], \"source_docs\": [\".codex/scopes/docker-web-lan/docker-web-lan-contract.md\"], \"tags\": [\"docker\", \"lan\", \"deployment\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:37Z\", \"decision_date\": \"2026-07-18\"}\ndocker-compose.yml related Dockerfile related .gitignore related\n\n\n# Local Compose overrides own LAN exposure\n\n## Context\n\nThe tracked Compose file uses a localhost port binding as the safe upstream default. This workstation needs optional LAN access without turning that host-specific choice into a merge conflict during upstream synchronization.\n\n## Decision\n\nKeep `docker-compose.yml` loopback-only. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, an untracked local override replaces the port list using the Compose `!override` tag.\n\n## Rationale\n\nA normal Compose override merges port entries, producing duplicate host bindings and a startup failure. Replacing the list gives one effective published port while isolating the deployment choice from the tracked upstream configuration.\n\n## Consequences\n\nThe override is intentionally local and is not committed. Operators must verify the effective configuration and listener after changing it. LAN exposure remains protected only by the application authentication and host network controls, so TLS and edge access control are required before any broader exposure.\n",
     "status": "accepted",
     "title": "Local Compose overrides own LAN exposure",
     "type": "decision"
@@ -81,7 +151,7 @@
   {
     "anchor_count": 0,
     "code_anchors": [],
-    "excerpt": "# Container operation and local deployment ## Scope The Compose service builds `m365-native:latest`, runs as the non-root `m365` user, and stores mutable state under `/data`. The tracked Compose file publishes `127.0.0.1:4141` by default. ## First-run procedure Create `data/` and `secrets/`, write a long administrator password to `secrets/m365_admin_password`, restrict that file to mode 0600, then run `docker compose up -d --build`. Do not place real values in `.env` or tracked configuration....",
+    "excerpt": "# Container operation and local deployment ## Scope The Compose service builds `m365-native:latest`, runs as the non-root `m365` user, and stores mutable state under `/data`. Its stable container name is `m365-native`, avoiding Compose's default repeated `<project>-<service>-<index>` name. The tracked Compose file publishes `127.0.0.1:4141` by default. The fixed container name and port mapping define this as a single-instance local deployment. ## First-run procedure Create `data/` and `secret...",
     "path": ".codex/wiki/how-to/container-operation.md",
     "related_files": [
       {
@@ -90,6 +160,14 @@
       },
       {
         "path": "docker-compose.yml",
+        "role": "related"
+      },
+      {
+        "path": "deploy/nginx/nginx.conf",
+        "role": "related"
+      },
+      {
+        "path": "deploy/nginx/server.conf",
         "role": "related"
       },
       {
@@ -102,7 +180,7 @@
       }
     ],
     "scope": "repository-operating-docs",
-    "search_text": "Container operation and local deployment\nhow-to\ncurrent\nrepository-operating-docs\n{\"title\": \"Container operation and local deployment\", \"type\": \"how-to\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"Dockerfile\", \"docker-compose.yml\", \"web\", \"README.md\"], \"source_docs\": [\"README.md\"], \"tags\": [\"docker\", \"deployment\", \"operations\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:13Z\"}\nDockerfile related docker-compose.yml related web related README.md related\n\n\n# Container operation and local deployment\n\n## Scope\n\nThe Compose service builds `m365-native:latest`, runs as the non-root `m365` user, and stores mutable state under `/data`. The tracked Compose file publishes `127.0.0.1:4141` by default.\n\n## First-run procedure\n\nCreate `data/` and `secrets/`, write a long administrator password to `secrets/m365_admin_password`, restrict that file to mode 0600, then run `docker compose up -d --build`. Do not place real values in `.env` or tracked configuration.\n\n## Runtime assets\n\nThe final image must contain both the binary at `/app/m365-native` and the runtime HTML assets at `/app/web`. `internal/web/security_http.go` opens `web/login.html` and `web/index.html` relative to the `/app` working directory. A container that omits `web/` starts but returns `web interface unavailable` from the root page.\n\n## LAN deployment\n\nLAN publishing is a host-specific choice. Keep the tracked default unchanged and use an ignored `docker-compose.override.yml` with `ports: !override` and `0.0.0.0:4141:4141` when LAN access is intended. Confirm the effective configuration with `docker compose config` and verify the listener using `ss -ltn sport = :4141`. Use TLS and an access-control layer before broader exposure.\n\n## Verification\n\nAfter a container change, run `docker compose up -d --build`, `docker compose ps`, check that `/app/web/login.html` and `/app/web/index.html` exist, and request `http://127.0.0.1:4141/` expecting HTTP 200.\n",
+    "search_text": "Container operation and local deployment\nhow-to\ncurrent\nrepository-operating-docs\n{\"title\": \"Container operation and local deployment\", \"type\": \"how-to\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"Dockerfile\", \"docker-compose.yml\", \"deploy/nginx/nginx.conf\", \"deploy/nginx/server.conf\", \"web\", \"README.md\"], \"source_docs\": [\"README.md\"], \"tags\": [\"docker\", \"deployment\", \"operations\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T09:15:52Z\"}\nDockerfile related docker-compose.yml related deploy/nginx/nginx.conf related deploy/nginx/server.conf related web related README.md related\n\n\n# Container operation and local deployment\n\n## Scope\n\nThe Compose service builds `m365-native:latest`, runs as the non-root `m365` user, and stores mutable state under `/data`. Its stable container name is `m365-native`, avoiding Compose's default repeated `<project>-<service>-<index>` name. The tracked Compose file publishes `127.0.0.1:4141` by default. The fixed container name and port mapping define this as a single-instance local deployment.\n\n## First-run procedure\n\nCreate `data/` and `secrets/`, write a long administrator password to `secrets/m365_admin_password`, then run `docker compose up -d --build`. The container runs as the `m365` user (UID/GID `100:101`), while bind mounts preserve host ownership. Set the password file to owner `100:101` and mode 0600 so the service can read it without making it world-readable. Do not place real values in `.env` or tracked configuration.\n\n## Runtime assets\n\nThe final image must contain both the binary at `/app/m365-native` and the runtime HTML assets at `/app/web`. `internal/web/security_http.go` opens `web/login.html` and `web/index.html` relative to the `/app` working directory. A container that omits `web/` starts but returns `web interface unavailable` from the root page.\n\n## LAN deployment\n\nFor LAN access, keep the application published only at `localhost` and place Nginx in front of it on a designated LAN HTTPS endpoint such as `https://<lan-host>:4141`. Binding Nginx to a specific LAN address does not conflict with Docker's loopback-only listener because both use the same port number on distinct local addresses. Standard HTTP redirects to standard HTTPS, and the default 443 virtual host serves Nginx's `/var/www/html` page rather than m365-native. Other named Nginx virtual hosts can share ports 80 and 443. The m365-native HTTPS proxy forwards to the loopback application port. Do not publish the Docker port directly: administrator sessions use secure cookies and management data must not traverse LAN HTTP.\n\nThe tracked Nginx files are sanitized templates. Keep the effective Nginx configuration, certificate locations, internal CA material, and real server names outside the repository. The template centralizes TLS policy, common security headers, request buffers, proxy streaming behavior, and gzip defaults; the site template defines only routing and proxy behavior. Replace its documentation address and server name only in an untracked local deployment copy. Do not add source-address/User-Agent spoofing, broad CORS, or WebSocket rules unless the served application requires them. Distribute only a public CA certificate to authorized client trust stores. Validate a local deployment with `nginx -t`, a service reload, an HTTP-to-HTTPS redirect check, and an HTTPS request using the local CA certificate.\n\n## Verification\n\nAfter a container change, run `docker compose up -d --build`, `docker compose ps`, check that `/app/web/login.html` and `/app/web/index.html` exist, and request `http://127.0.0.1:4141/` expecting HTTP 200. For password-file changes, also verify the `m365` user can read `/run/secrets/m365_admin_password` without printing it.\n",
     "status": "current",
     "title": "Container operation and local deployment",
     "type": "how-to"
