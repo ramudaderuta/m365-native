@@ -37,6 +37,8 @@ type Server struct {
 	apiKeys            *apiKeyStore
 	debug              *debugStore
 	settings           *settingsStore
+	responseMu         sync.Mutex
+	responseMessages   map[string][]oaiMsg
 }
 
 func New() (*Server, error) {
@@ -57,6 +59,7 @@ func New() (*Server, error) {
 		apiKeys:            openAPIKeys(),
 		debug:              openDebugStore(),
 		settings:           openSettingsStore(),
+		responseMessages:   map[string][]oaiMsg{},
 	}, nil
 }
 
@@ -424,6 +427,12 @@ type chatBody struct {
 	FunctionCall    any               `json:"function_call,omitempty"`
 	Reasoning       *reasoningConfig  `json:"reasoning,omitempty"`
 	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *responseFormat   `json:"response_format,omitempty"`
+}
+
+type responseFormat struct {
+	Type       string         `json:"type"`
+	JSONSchema map[string]any `json:"json_schema,omitempty"`
 }
 
 func modelTone(model string) string {
@@ -556,9 +565,10 @@ type oaiMsg struct {
 }
 
 type oaiReq struct {
-	Model    string   `json:"model"`
-	Messages []oaiMsg `json:"messages"`
-	Stream   bool     `json:"stream"`
+	Model          string          `json:"model"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+	Messages       []oaiMsg        `json:"messages"`
+	Stream         bool            `json:"stream"`
 	// optional account routing
 	User           string               `json:"user"`
 	AccountID      string               `json:"accountId"`
@@ -625,6 +635,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
+	responseFormat := body.ResponseFormat
 	effort := body.ReasoningEffort
 	if body.Reasoning != nil && strings.TrimSpace(body.Reasoning.Effort) != "" {
 		effort = body.Reasoning.Effort
@@ -649,30 +660,12 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "tool_round_limit", "message": err.Error(), "completed_calls": len(activeLedger.Completed)}})
 		return
 	}
-	// Flatten messages while preserving tool result identity and bounding noisy output.
-	var parts []string
-	for _, m := range body.Messages {
-		role := m.Role
-		if role == "" {
-			role = "user"
-		}
-		txt, attachments := parseContent(m.Content)
-		txt = strings.TrimSpace(txt)
-		body.Attachments = append(body.Attachments, attachments...)
-		if len(m.ToolCalls) > 0 {
-			parts = append(parts, role+" tool_calls: "+mustJSON(m.ToolCalls))
-		}
-		if m.Role == "tool" {
-			txt = compactToolResult(txt, 4000)
-			parts = append(parts, "tool["+m.ToolCallID+"]: "+txt)
-			continue
-		}
-		if txt == "" {
-			continue
-		}
-		parts = append(parts, role+": "+txt)
-	}
-	prompt := strings.TrimSpace(strings.Join(parts, "\n"))
+	// Preserve role boundaries when adapting OpenAI messages to ChatHub's
+	// single message.text field. This keeps system/developer instructions,
+	// history, and the current user turn distinguishable.
+	var prompt string
+	prompt, body.Attachments = flattenPromptMessages(body.Messages, body.Attachments)
+	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		http.Error(w, "messages required", http.StatusBadRequest)
 		return
@@ -736,10 +729,14 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		calls, parsed := parseModelToolDecision(routeRes.Text, toolMaps, body.ToolChoice)
+		calls = filterCompletedCalls(calls, ledger)
+		calls = filterCompletedCalls(calls, ledger)
 		if !parsed {
 			repairRes, repairErr := s.chat.Chat(ctx, account, chathub.Request{Text: `Repair this tool routing output into JSON only with shape {"calls":[{"name":"function_name","arguments":{}}]}. Use {"calls":[]} if no tool is needed. OUTPUT:\n` + compactToolResult(routeRes.Text, 6000), Tone: tone})
 			if repairErr == nil {
 				calls, parsed = parseModelToolDecision(repairRes.Text, toolMaps, body.ToolChoice)
+				calls = filterCompletedCalls(calls, ledger)
+				calls = filterCompletedCalls(calls, ledger)
 			}
 		}
 		if parsed && len(calls) > 0 {
@@ -835,6 +832,7 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 			retryRes, retryErr := s.chat.Chat(ctx, account, chathub.Request{Text: retryText, Tone: tone})
 			if retryErr == nil {
 				calls, parsed = parseModelToolDecision(retryRes.Text, toolMaps, body.ToolChoice)
+				calls = filterCompletedCalls(calls, ledger)
 				if parsed && len(calls) > 0 {
 					scope := fmt.Sprintf("%d:%v:required-retry", len(body.Messages), completedCallIDs(ledger))
 					for i := range calls {
@@ -952,6 +950,9 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 		return
 	}
 
+	if responseFormat != nil && (responseFormat.Type == "json_object" || responseFormat.Type == "json_schema") {
+		res.Text = normalizeJSONText(res.Text)
+	}
 	content := any(res.Text)
 	if len(res.Images) > 0 {
 		parts := []any{map[string]any{"type": "text", "text": res.Text}}
