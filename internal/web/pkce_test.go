@@ -13,6 +13,7 @@ func TestStartPKCEUsesBrowserClientDefaults(t *testing.T) {
 	t.Setenv("M365_CLIENT_ID", "")
 	t.Setenv("M365_AUTHORITY", "")
 	t.Setenv("M365_REDIRECT_URI", "")
+	t.Setenv("M365_SCOPE", "")
 
 	s := &Server{pkce: map[string]pendingPKCE{}}
 	rr := httptest.NewRecorder()
@@ -36,15 +37,18 @@ func TestStartPKCEUsesBrowserClientDefaults(t *testing.T) {
 	if response.State == "" {
 		t.Fatal("response omitted state")
 	}
-	if got, want := response.RedirectURI, "https://login.microsoftonline.com/common/oauth2/nativeclient"; got != want {
+	if got, want := response.RedirectURI, "http://127.0.0.1:4141/api/auth/callback"; got != want {
 		t.Fatalf("redirect URI = %q, want %q", got, want)
 	}
 	u, err := url.Parse(response.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := u.Query().Get("client_id"), "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"; got != want {
+	if got, want := u.Query().Get("client_id"), "efcea265-005c-4f0a-97c2-b3ab369c8484"; got != want {
 		t.Fatalf("client_id = %q, want %q", got, want)
+	}
+	if got, want := u.Query().Get("scope"), "openid profile offline_access https://substrate.office.com/sydney/.default"; got != want {
+		t.Fatalf("scope = %q, want %q", got, want)
 	}
 	if got := u.Query().Get("redirect_uri"); got != response.RedirectURI {
 		t.Fatalf("authorization redirect URI = %q, response redirect URI = %q", got, response.RedirectURI)

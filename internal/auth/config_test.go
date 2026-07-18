@@ -10,18 +10,22 @@ func TestBrowserPKCEDefaultsRemainMatched(t *testing.T) {
 		"M365_CLIENT_ID",
 		"M365_AUTHORITY",
 		"M365_REDIRECT_URI",
+		"M365_SCOPE",
 	} {
 		t.Setenv(key, "")
 	}
 
-	if got, want := ClientID(), "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"; got != want {
+	if got, want := ClientID(), "efcea265-005c-4f0a-97c2-b3ab369c8484"; got != want {
 		t.Fatalf("ClientID() = %q, want %q", got, want)
 	}
 	if got, want := Authority(), "https://login.microsoftonline.com/common"; got != want {
 		t.Fatalf("Authority() = %q, want %q", got, want)
 	}
-	if got, want := RedirectURI(), "https://login.microsoftonline.com/common/oauth2/nativeclient"; got != want {
+	if got, want := RedirectURI(), "http://127.0.0.1:4141/api/auth/callback"; got != want {
 		t.Fatalf("RedirectURI() = %q, want %q", got, want)
+	}
+	if got, want := Scope(), "openid profile offline_access https://substrate.office.com/sydney/.default"; got != want {
+		t.Fatalf("Scope() = %q, want %q", got, want)
 	}
 }
 
