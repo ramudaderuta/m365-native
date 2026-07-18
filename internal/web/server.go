@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -48,9 +49,13 @@ func New() (*Server, error) {
 	}
 	password, mustChange := loadAdminPassword()
 	return &Server{
-		tokens:             store,
-		pkce:               map[string]pendingPKCE{},
-		chat:               chathub.NewClient(),
+		tokens: store,
+		pkce:   map[string]pendingPKCE{},
+		chat: func() *chathub.Client {
+			c := chathub.NewClient()
+			c.Trace = func(meta map[string]any) { fmt.Printf("[multimodal-trace] %s\\n", mustJSON(meta)) }
+			return c
+		}(),
 		sessions:           openSessionStore(),
 		adminPassword:      password,
 		adminSessions:      map[string]time.Time{},
@@ -486,8 +491,8 @@ func (s *Server) chatOnce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(firstNonEmpty(body.Message, body.Prompt))
-	if text == "" {
-		http.Error(w, "message required", http.StatusBadRequest)
+	if text == "" && len(body.Attachments) == 0 {
+		http.Error(w, "message or attachment required", http.StatusBadRequest)
 		return
 	}
 	if body.SessionKey != "" {
@@ -528,7 +533,7 @@ func (s *Server) chatOnce(w http.ResponseWriter, r *http.Request) {
 		Attachments:    body.Attachments,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, upstreamError(err), http.StatusBadGateway)
 		return
 	}
 	if body.SessionKey != "" {
@@ -632,7 +637,8 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	raw, err := io.ReadAll(r.Body)
+	const maxChatRequestBody = 10 << 20
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxChatRequestBody))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
 		return
@@ -712,6 +718,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 	if body.ToolChoice == nil && len(toolMaps) > 0 {
 		body.ToolChoice = "auto"
 	}
+	planningMode := s.settings.get().ToolPlanningMode
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.settings.get().ChatTimeoutSeconds)*time.Second)
 	defer cancel()
@@ -724,7 +731,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 	// path forwards ordinary upstream text deltas immediately; tool routing for
 	// non-streaming requests remains below until the event-level tool protocol
 	// is available end-to-end.
-	if body.Stream && len(toolMaps) > 0 && fmt.Sprint(body.ToolChoice) != "none" {
+	if planningMode == "router" && body.Stream && len(toolMaps) > 0 && fmt.Sprint(body.ToolChoice) != "none" {
 		// Preserve the existing validated tool router for streaming tool turns.
 		// Only fall through to text streaming when the router explicitly selects
 		// no tool; this prevents a natural-language preamble from becoming a
@@ -763,23 +770,25 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		answerReq := chathub.Request{Text: answerPrompt, Tone: tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments, Tools: body.Tools, ToolChoice: body.ToolChoice}
 		id := "chatcmpl-" + uuid.NewString()
 		model := firstNonEmpty(body.Model, "m365-copilot")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
+			http.Error(w, "stream unsupported", http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, ": connected\n\n")
+		fmt.Fprint(w, ": connected\n\n")
 		flusher.Flush()
-		first := true
+		var text strings.Builder
+		var pending strings.Builder
 		var streamedTools []detectedToolCall
-		_, err := s.chat.ChatWithEvents(ctx, account, answerReq, func(ev chathub.StreamEvent) error {
-			if ev.Kind == "tool" && ev.ToolName != "" && len(ev.Arguments) > 0 {
-				streamedTools = append(streamedTools, detectedToolCall{ID: "call_" + uuid.NewString(), Name: ev.ToolName, Arguments: ev.Arguments})
-				return nil
+		first := true
+		emitText := func(part string) {
+			if part == "" {
+				return
 			}
-			if ev.Kind != "text" || ev.Text == "" {
-				return nil
-			}
-			delta := map[string]any{"content": ev.Text}
+			delta := map[string]any{"content": part}
 			if first {
 				delta["role"] = "assistant"
 				first = false
@@ -787,22 +796,67 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			chunk := map[string]any{"id": id, "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": model, "choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": nil}}}
 			fmt.Fprintf(w, "data: %s\n\n", mustJSON(chunk))
 			flusher.Flush()
+		}
+		res, err := s.chat.ChatWithEvents(ctx, account, answerReq, func(ev chathub.StreamEvent) error {
+			if ev.Kind == "tool" && ev.ToolName != "" && len(ev.Arguments) > 0 {
+				streamedTools = append(streamedTools, detectedToolCall{ID: "call_" + uuid.NewString(), Name: ev.ToolName, Arguments: ev.Arguments})
+				return nil
+			}
+			if ev.Kind != "text" || ev.Text == "" {
+				return nil
+			}
+			text.WriteString(ev.Text)
+			pending.WriteString(ev.Text)
+			v := pending.String()
+			if i := strings.Index(v, "```"); i >= 0 {
+				emitText(v[:i])
+				pending.Reset()
+				pending.WriteString(v[i:])
+				return nil
+			}
+			if runeCount := utf8.RuneCountInString(v); runeCount > 8 {
+				cut := 0
+				seen := 0
+				for i := range v {
+					if seen == runeCount-8 {
+						cut = i
+						break
+					}
+					seen++
+				}
+				emitText(v[:cut])
+				pending.Reset()
+				pending.WriteString(v[cut:])
+			}
 			return nil
 		})
-		if err == nil {
-			for i, tc := range streamedTools {
-				chunk := map[string]any{"id": id, "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{map[string]any{"index": i, "id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": string(tc.Arguments)}}}}, "finish_reason": nil}}}
-				fmt.Fprintf(w, "data: %s\n\n", mustJSON(chunk))
-				flusher.Flush()
-			}
-			fmt.Fprint(w, "data: [DONE]\n\n")
-			flusher.Flush()
+		if err != nil {
+			return
 		}
+		// Some ChatHub updates contain no text event and place the completed
+		// answer only in the final Result. Recover it before deciding that the
+		// response is empty; this also preserves fenced-tool parsing.
+		if text.Len() == 0 && strings.TrimSpace(res.Text) != "" {
+			text.WriteString(res.Text)
+			pending.WriteString(res.Text)
+		}
+		calls := streamedTools
+		if len(calls) == 0 {
+			calls = fencedToolCalls(text.String(), toolMaps, body.ToolChoice)
+		}
+		if len(calls) > 0 {
+			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+			_ = writeToolResponse(w, id, model, true, calls, chathub.Result{Text: text.String()}, true)
+			return
+		}
+		emitText(pending.String())
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
 		return
 	}
 	// Ask the upstream model to select and validate the next tool. The gateway
 	// remains tool-agnostic; it only validates and serializes the decision.
-	if len(toolMaps) > 0 && fmt.Sprint(body.ToolChoice) != "none" {
+	if planningMode == "router" && len(toolMaps) > 0 && fmt.Sprint(body.ToolChoice) != "none" {
 		routePrompt := modelToolRouterPrompt(prompt+"\n"+ledger.RouterContext(), toolMaps, body.ToolChoice)
 		routeRes, routeErr := s.chat.Chat(ctx, account, chathub.Request{Text: routePrompt, Tone: tone})
 		if routeErr != nil {
@@ -855,6 +909,10 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 	}
 	answerPrompt := prompt + "\n" + ledger.RouterContext() + "\nFINAL ANSWER RULE: Report only actions supported by completed tool results. If the goal is not fully verified, state exactly what remains unconfirmed."
 	answerReq := chathub.Request{Text: answerPrompt, Tone: tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments}
+	if planningMode == "native" {
+		answerReq.Tools = body.Tools
+		answerReq.ToolChoice = body.ToolChoice
+	}
 	var res chathub.Result
 	streamed := false
 	if body.Stream {
@@ -898,7 +956,7 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 		if streamed {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, upstreamError(err), http.StatusBadGateway)
 		return
 	}
 	if body.Stream {
