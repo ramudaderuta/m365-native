@@ -30,5 +30,6 @@ __pycache__/
 /m365-native.rollback*
 /data/
 /secrets/
+/docker-compose.override.yml
 .runtime-backups/
 runtime.pid
