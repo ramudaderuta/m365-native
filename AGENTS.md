@@ -31,6 +31,15 @@
 - Treat account caches, OAuth access/refresh tokens, cookies, API keys,
   administrator passwords, HAR files, and debug logs as secrets. Never print,
   commit, copy, or place them in wiki or scope documents.
+- This is a public repository. Never commit or document host-specific data:
+  LAN/WAN addresses, hostnames, local usernames or home paths, live proxy or
+  service configurations, generated certificates, private keys, or any detail
+  that identifies or exposes this machine. Use neutral placeholders or IANA
+  documentation addresses in tracked examples; keep effective deployment
+  configuration outside the repository.
+- Before committing public-facing documentation, templates, wiki pages, or
+  scope records, scan for credentials and host identifiers. Generated wiki
+  metadata must also be sanitized when it embeds a local path.
 - `data/` and `secrets/` are local runtime state. Preserve restrictive file
   permissions and the read-only password-file mount in Compose.
 - The tracked Compose configuration binds to localhost. LAN publishing is a

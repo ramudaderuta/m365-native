@@ -9,6 +9,16 @@ accounts.json
 cookies*.txt
 /tmp/
 
+# Machine-specific deployment material. Keep sanitized templates under deploy/.
+/certs/
+/certificates/
+/deploy/local/
+/nginx-local/
+/docker-compose.local.yml
+/docker-compose.*.local.yml
+/outputs/
+*.bak
+
 # Build artifacts
 /m365-native
 /bin/
@@ -31,6 +41,8 @@ __pycache__/
 /data/
 /secrets/
 /docker-compose.override.yml
-/outputs/
 .runtime-backups/
 runtime.pid
+
+# Local Codex notes and generated task artifacts that are not project knowledge.
+/.codex/local/
