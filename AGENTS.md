@@ -40,6 +40,11 @@
 - Before committing public-facing documentation, templates, wiki pages, or
   scope records, scan for credentials and host identifiers. Generated wiki
   metadata must also be sanitized when it embeds a local path.
+- Upstream pull requests must contain only portable source, tests, and
+  sanitized public documentation. Never include host-local `.codex` wiki or
+  scope records, generated navigation indexes, deployment notes, or other
+  machine-specific operational material; keep those changes in the fork's
+  local worktree unless they have been deliberately sanitized for publication.
 - `data/` and `secrets/` are local runtime state. Preserve restrictive file
   permissions and the read-only password-file mount in Compose.
 - The tracked Compose configuration binds to localhost. LAN publishing is a
