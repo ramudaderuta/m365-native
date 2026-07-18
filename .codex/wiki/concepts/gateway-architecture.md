@@ -3,10 +3,16 @@ title: Gateway architecture and request flow
 type: concept
 status: current
 scope: repository-operating-docs
-related_scopes: []
+related_scopes:
+  - codex-responses-compatibility
 related_files:
   - cmd/server/main.go
   - internal/web/server.go
+  - internal/web/codex_catalog.go
+  - internal/web/codex_responses.go
+  - internal/web/codex_usage.go
+  - internal/web/protocol_handlers.go
+  - internal/web/protocol_response.go
   - internal/chathub/client.go
   - internal/auth/cache.go
 source_docs:
@@ -16,7 +22,7 @@ tags:
   - gateway
   - chathub
 last_checked: 2026-07-18
-updated: 2026-07-18T08:33:43Z
+updated: 2026-07-18T12:10:00Z
 ---
 
 # Gateway architecture and request flow
@@ -32,6 +38,55 @@ updated: 2026-07-18T08:33:43Z
 ## Boundaries
 
 The web package is the public HTTP boundary. The ChatHub package is the upstream protocol boundary. The auth package owns account-token persistence and refresh. Keep protocol-specific transformations in `internal/web/` rather than leaking HTTP concerns into `internal/chathub/`.
+
+## Responses compatibility
+
+The OpenAI Responses adapter accepts string input and typed content blocks. In
+particular, Codex sends text as `input_text`, which is normalized alongside the
+gateway's existing `text` and `output_text` blocks before ChatHub adaptation.
+Responses image content may use either a nested `image_url.url` object or a
+direct `image_url` string; both forms become ChatHub attachments without
+changing the Codex text-block behavior.
+The model catalog preserves OpenAI's `data` list and also exposes a `models`
+alias required by Codex v0.144.5. Every catalog entry must provide stable
+`id`, `slug`, `display_name`, and `supported_reasoning_levels` values; this
+gateway uses the model ID for both derived identifier fields. Codex requires
+both advertised reasoning fields to contain preset objects with `effort` and
+`description`, not bare effort strings; the gateway mirrors that structure and
+uses `medium` as its explicit default. The same local catalog also advertises
+Codex execution metadata such as `shell_type`, visibility, API availability,
+priority, tier lists, tool capabilities, and truncation settings. This metadata
+is not forwarded to ChatHub. Codex also requires `base_instructions` and a
+matching `model_messages.instructions_template`; the gateway supplies a concise
+maintained template rather than copying a bundled local prompt. The catalog
+response itself is not forwarded to ChatHub, although Codex may include this
+template in later request instructions that use the normal upstream flow.
+Administrator settings provide a single mapping contract for client-selected
+model IDs: each mapping publishes a compatible catalog record and selects a
+validated ChatHub tone for both Chat Completions and Responses calls. The UI
+suggests the models currently bundled with Codex, preloads its GPT-5.6 Sol,
+Terra, and Luna variants, and allows custom client aliases. It never advertises
+the bundled model's local context size over the configured gateway limit.
+
+Codex-specific code is organized inside `internal/web/` as
+`codex_catalog.go`, `codex_usage.go`, and `codex_responses.go`. They remain in
+the `web` package so they can use the HTTP layer's unexported request and
+settings types without introducing exports or a package cycle. Generic OpenAI
+and Anthropic handling remains in its protocol files, and ChatHub remains
+unaware of Codex-specific metadata.
+Streaming Responses calls must end in a terminal `response.completed` or
+`response.failed` event; never close after only `response.created`, because
+Codex treats that as a transport disconnect. ChatHub does not report provider
+token counts, so Responses completion events carry clearly marked local usage
+estimates for client context-progress displays rather than billing or quota
+decisions. GPT route aliases use the embedded `o200k_base` vocabulary from
+`tiktoken-go/tokenizer`; this avoids runtime BPE downloads and identifies the
+result as `tiktoken_o200k_base_estimate`. Claude and unknown route aliases
+retain a separately identified heuristic fallback. Usage estimates include
+visible message framing, tool schemas, tool choice, tool calls, and completion
+framing so client context and auto-compaction thresholds are not systematically
+low for tool-heavy turns. Hidden upstream prompts, image tokenization, and
+provider reasoning tokens remain unavailable.
 
 ## Verification
 
