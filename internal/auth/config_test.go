@@ -30,8 +30,8 @@ func TestDefaultAuthorityIsMultitenant(t *testing.T) {
 	if got := Authority(); got != "https://login.microsoftonline.com/common" {
 		t.Fatalf("Authority() = %q", got)
 	}
-	if strings.Contains(AuthorizeEndpoint(), "f7c4604c-0ec5-4d52-90eb-68db37632328") {
-		t.Fatal("default authorize endpoint still uses the invalid tenant")
+	if !strings.Contains(AuthorizeEndpoint(), "/common/") {
+		t.Fatal("default authorize endpoint must be multitenant")
 	}
 }
 

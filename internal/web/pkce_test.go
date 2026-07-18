@@ -16,7 +16,9 @@ func TestStartPKCEUsesBrowserClientDefaults(t *testing.T) {
 
 	s := &Server{pkce: map[string]pendingPKCE{}}
 	rr := httptest.NewRecorder()
-	s.startPKCE(rr, httptest.NewRequest(http.MethodPost, "/api/auth/start", nil))
+	r := httptest.NewRequest(http.MethodPost, "/api/auth/start", nil)
+	r.Host = "127.0.0.1:4141"
+	s.startPKCE(rr, r)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
