@@ -3,6 +3,7 @@ package auth
 import "os"
 
 // Office web Copilot first-party client (verified working with ChatHub via browser PKCE).
+// The default authority is multi-tenant; the tenant is learned from the issued token.
 // Device-code/FOCI client can still be forced via M365_CLIENT_ID.
 const DefaultClientID = "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"
 const FOCIClientID = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
