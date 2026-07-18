@@ -21,6 +21,8 @@ tags:
   - architecture
   - gateway
   - chathub
+  - codex
+  - tools
 last_checked: 2026-07-18
 updated: 2026-07-18T12:10:00Z
 ---
@@ -87,6 +89,22 @@ visible message framing, tool schemas, tool choice, tool calls, and completion
 framing so client context and auto-compaction thresholds are not systematically
 low for tool-heavy turns. Hidden upstream prompts, image tokenization, and
 provider reasoning tokens remain unavailable.
+
+## Custom tool compatibility
+
+Codex can advertise local executors as Responses `custom` tools rather than
+JSON `function` tools. The supported local shell path is `custom: exec`: its
+grammar-constrained raw input is represented internally as an `input` string
+solely for the ChatHub planner, while the Responses adapter returns a
+`custom_tool_call` item and matching `response.custom_tool_call_input.*`
+stream events. When Codex returns a `custom_tool_call_output`, the adapter must
+also retain the preceding custom call as an assistant tool call so the gateway's
+conversation validator can match the result. Do not coerce custom calls into
+public `function_call` responses.
+
+`namespace` and hosted tools such as `web_search` are not executed by this
+bridge unless a separate compatibility path implements their semantics. Never
+silently claim that an unsupported tool executed.
 
 ## Verification
 
