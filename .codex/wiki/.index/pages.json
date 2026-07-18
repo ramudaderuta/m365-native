@@ -1,0 +1,160 @@
+[
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Gateway architecture and request flow ## Scope `m365-native` is a local HTTP gateway for authorized Microsoft 365 Copilot sessions. It serves a web console and OpenAI- and Anthropic-compatible APIs; it is not an authentication bypass. ## Request flow `cmd/server/main.go` loads persisted startup settings, constructs `web.Server`, and starts the HTTP listener. `internal/web/server.go` owns routing, request IDs, security headers, administrator-session checks, API-key validation, conversation h...",
+    "path": ".codex/wiki/concepts/gateway-architecture.md",
+    "related_files": [
+      {
+        "path": "cmd/server/main.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/server.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/chathub/client.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/auth/cache.go",
+        "role": "related"
+      }
+    ],
+    "scope": "repository-operating-docs",
+    "search_text": "Gateway architecture and request flow\nconcept\ncurrent\nrepository-operating-docs\n{\"title\": \"Gateway architecture and request flow\", \"type\": \"concept\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"cmd/server/main.go\", \"internal/web/server.go\", \"internal/chathub/client.go\", \"internal/auth/cache.go\"], \"source_docs\": [\"README.md\"], \"tags\": [\"architecture\", \"gateway\", \"chathub\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:33:43Z\"}\ncmd/server/main.go related internal/web/server.go related internal/chathub/client.go related internal/auth/cache.go related\n\n\n# Gateway architecture and request flow\n\n## Scope\n\n`m365-native` is a local HTTP gateway for authorized Microsoft 365 Copilot sessions. It serves a web console and OpenAI- and Anthropic-compatible APIs; it is not an authentication bypass.\n\n## Request flow\n\n`cmd/server/main.go` loads persisted startup settings, constructs `web.Server`, and starts the HTTP listener. `internal/web/server.go` owns routing, request IDs, security headers, administrator-session checks, API-key validation, conversation handling, and protocol adapters. Requests that need model responses are translated into ChatHub requests by `internal/chathub/`, which maintains the upstream WebSocket interaction. `internal/auth/` stores and refreshes authorized account tokens.\n\n## Boundaries\n\nThe web package is the public HTTP boundary. The ChatHub package is the upstream protocol boundary. The auth package owns account-token persistence and refresh. Keep protocol-specific transformations in `internal/web/` rather than leaking HTTP concerns into `internal/chathub/`.\n\n## Verification\n\nRun `go test ./...`, `go vet ./...`, and `go build ./...` after Go changes. Use `docker compose up -d --build` plus a local HTTP smoke test for container changes.\n\n## Related knowledge\n\nSee the operations and security pages for container state, deployment boundaries, and credential handling.\n",
+    "status": "current",
+    "title": "Gateway architecture and request flow",
+    "type": "concept"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Docker image web asset failure ## Symptom The container is running and port 4141 is listening, but `GET /` returns HTTP 500 with `web interface unavailable`. ## Cause The root handler opens `web/login.html` or `web/index.html` relative to the runtime working directory. The original final Docker stage copied only the compiled binary and omitted the `web/` directory. ## Fix Copy `/src/web` from the build stage to `/app/web` in the final Docker stage, then rebuild and recreate the service with...",
+    "path": ".codex/wiki/debugging/docker-web-assets.md",
+    "related_files": [
+      {
+        "path": "Dockerfile",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/security_http.go",
+        "role": "related"
+      },
+      {
+        "path": "web",
+        "role": "related"
+      }
+    ],
+    "scope": "docker-web-lan",
+    "search_text": "Docker image web asset failure\ndebugging\ncurrent\ndocker-web-lan\n{\"title\": \"Docker image web asset failure\", \"type\": \"debugging\", \"status\": \"current\", \"scope\": \"docker-web-lan\", \"related_scopes\": [\"repository-operating-docs\"], \"related_files\": [\"Dockerfile\", \"internal/web/security_http.go\", \"web\"], \"source_docs\": [], \"tags\": [\"docker\", \"debugging\", \"web\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:37Z\"}\nDockerfile related internal/web/security_http.go related web related\n\n\n# Docker image web asset failure\n\n## Symptom\n\nThe container is running and port 4141 is listening, but `GET /` returns HTTP 500 with `web interface unavailable`.\n\n## Cause\n\nThe root handler opens `web/login.html` or `web/index.html` relative to the runtime working directory. The original final Docker stage copied only the compiled binary and omitted the `web/` directory.\n\n## Fix\n\nCopy `/src/web` from the build stage to `/app/web` in the final Docker stage, then rebuild and recreate the service with `docker compose up -d --build`.\n\n## Probe\n\nConfirm both `/app/web/login.html` and `/app/web/index.html` exist in the container, then request the root URL and expect HTTP 200. If the files are present but the response still fails, inspect the container working directory and the root handler path logic.\n",
+    "status": "current",
+    "title": "Docker image web asset failure",
+    "type": "debugging"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Local Compose overrides own LAN exposure ## Context The tracked Compose file uses a localhost port binding as the safe upstream default. This workstation needs optional LAN access without turning that host-specific choice into a merge conflict during upstream synchronization. ## Decision Keep `docker-compose.yml` at `127.0.0.1:4141:4141`. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, the local override replaces the port list with `0.0.0.0:4141:4141` using t...",
+    "path": ".codex/wiki/decisions/local-compose-overrides.md",
+    "related_files": [
+      {
+        "path": "docker-compose.yml",
+        "role": "related"
+      },
+      {
+        "path": "Dockerfile",
+        "role": "related"
+      },
+      {
+        "path": ".gitignore",
+        "role": "related"
+      }
+    ],
+    "scope": "docker-web-lan",
+    "search_text": "Local Compose overrides own LAN exposure\ndecision\naccepted\ndocker-web-lan\n{\"title\": \"Local Compose overrides own LAN exposure\", \"type\": \"decision\", \"status\": \"accepted\", \"scope\": \"docker-web-lan\", \"related_scopes\": [\"repository-operating-docs\"], \"related_files\": [\"docker-compose.yml\", \"Dockerfile\", \".gitignore\"], \"source_docs\": [\".codex/scopes/docker-web-lan/docker-web-lan-contract.md\"], \"tags\": [\"docker\", \"lan\", \"deployment\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:37Z\", \"decision_date\": \"2026-07-18\"}\ndocker-compose.yml related Dockerfile related .gitignore related\n\n\n# Local Compose overrides own LAN exposure\n\n## Context\n\nThe tracked Compose file uses a localhost port binding as the safe upstream default. This workstation needs optional LAN access without turning that host-specific choice into a merge conflict during upstream synchronization.\n\n## Decision\n\nKeep `docker-compose.yml` at `127.0.0.1:4141:4141`. Add `docker-compose.override.yml` to `.gitignore`; when LAN access is required, the local override replaces the port list with `0.0.0.0:4141:4141` using the Compose `!override` tag.\n\n## Rationale\n\nA normal Compose override merges port entries, producing duplicate host bindings and a startup failure. Replacing the list gives one effective published port while isolating the deployment choice from the tracked upstream configuration.\n\n## Consequences\n\nThe override is intentionally local and is not committed. Operators must verify the effective configuration and listener after changing it. LAN exposure remains protected only by the application authentication and host network controls, so TLS and edge access control are required before any broader exposure.\n",
+    "status": "accepted",
+    "title": "Local Compose overrides own LAN exposure",
+    "type": "decision"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Container operation and local deployment ## Scope The Compose service builds `m365-native:latest`, runs as the non-root `m365` user, and stores mutable state under `/data`. The tracked Compose file publishes `127.0.0.1:4141` by default. ## First-run procedure Create `data/` and `secrets/`, write a long administrator password to `secrets/m365_admin_password`, restrict that file to mode 0600, then run `docker compose up -d --build`. Do not place real values in `.env` or tracked configuration....",
+    "path": ".codex/wiki/how-to/container-operation.md",
+    "related_files": [
+      {
+        "path": "Dockerfile",
+        "role": "related"
+      },
+      {
+        "path": "docker-compose.yml",
+        "role": "related"
+      },
+      {
+        "path": "web",
+        "role": "related"
+      },
+      {
+        "path": "README.md",
+        "role": "related"
+      }
+    ],
+    "scope": "repository-operating-docs",
+    "search_text": "Container operation and local deployment\nhow-to\ncurrent\nrepository-operating-docs\n{\"title\": \"Container operation and local deployment\", \"type\": \"how-to\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"Dockerfile\", \"docker-compose.yml\", \"web\", \"README.md\"], \"source_docs\": [\"README.md\"], \"tags\": [\"docker\", \"deployment\", \"operations\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:13Z\"}\nDockerfile related docker-compose.yml related web related README.md related\n\n\n# Container operation and local deployment\n\n## Scope\n\nThe Compose service builds `m365-native:latest`, runs as the non-root `m365` user, and stores mutable state under `/data`. The tracked Compose file publishes `127.0.0.1:4141` by default.\n\n## First-run procedure\n\nCreate `data/` and `secrets/`, write a long administrator password to `secrets/m365_admin_password`, restrict that file to mode 0600, then run `docker compose up -d --build`. Do not place real values in `.env` or tracked configuration.\n\n## Runtime assets\n\nThe final image must contain both the binary at `/app/m365-native` and the runtime HTML assets at `/app/web`. `internal/web/security_http.go` opens `web/login.html` and `web/index.html` relative to the `/app` working directory. A container that omits `web/` starts but returns `web interface unavailable` from the root page.\n\n## LAN deployment\n\nLAN publishing is a host-specific choice. Keep the tracked default unchanged and use an ignored `docker-compose.override.yml` with `ports: !override` and `0.0.0.0:4141:4141` when LAN access is intended. Confirm the effective configuration with `docker compose config` and verify the listener using `ss -ltn sport = :4141`. Use TLS and an access-control layer before broader exposure.\n\n## Verification\n\nAfter a container change, run `docker compose up -d --build`, `docker compose ps`, check that `/app/web/login.html` and `/app/web/index.html` exist, and request `http://127.0.0.1:4141/` expecting HTTP 200.\n",
+    "status": "current",
+    "title": "Container operation and local deployment",
+    "type": "how-to"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Credential and persistent-state handling ## Scope This gateway persists administrator credentials, OAuth account tokens, API-key hashes, and conversation mappings. These are sensitive operational data even when some records are hashed. ## Persistent paths The container maps `./data` to `/data`. The Compose defaults place account metadata, token cache, session mapping, and API-key hashes there. The administrator password is read from the separate, read-only file mounted at `/run/secrets/m365...",
+    "path": ".codex/wiki/reference/credential-and-state-handling.md",
+    "related_files": [
+      {
+        "path": "internal/auth/cache.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/keys.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/sessions.go",
+        "role": "related"
+      },
+      {
+        "path": "internal/web/admin_security.go",
+        "role": "related"
+      },
+      {
+        "path": "docker-compose.yml",
+        "role": "related"
+      }
+    ],
+    "scope": "repository-operating-docs",
+    "search_text": "Credential and persistent-state handling\nreference\ncurrent\nrepository-operating-docs\n{\"title\": \"Credential and persistent-state handling\", \"type\": \"reference\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"internal/auth/cache.go\", \"internal/web/keys.go\", \"internal/web/sessions.go\", \"internal/web/admin_security.go\", \"docker-compose.yml\"], \"source_docs\": [\"README.md\", \"SECURITY.md\"], \"tags\": [\"security\", \"credentials\", \"persistence\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:34:13Z\"}\ninternal/auth/cache.go related internal/web/keys.go related internal/web/sessions.go related internal/web/admin_security.go related docker-compose.yml related\n\n\n# Credential and persistent-state handling\n\n## Scope\n\nThis gateway persists administrator credentials, OAuth account tokens, API-key hashes, and conversation mappings. These are sensitive operational data even when some records are hashed.\n\n## Persistent paths\n\nThe container maps `./data` to `/data`. The Compose defaults place account metadata, token cache, session mapping, and API-key hashes there. The administrator password is read from the separate, read-only file mounted at `/run/secrets/m365_admin_password`. Local `data/` and `secrets/` are ignored by Git.\n\n## Hard rules\n\nNever commit, print, copy into documentation, or send OAuth tokens, refresh tokens, cookies, account caches, API keys, raw password files, or debug logs. Preserve file modes that restrict secret-bearing data to the service owner. Do not expose the service outside trusted networks without TLS and an additional access-control layer.\n\n## Authentication behavior\n\nAdministrative management uses a session cookie after login. `/v1/` endpoints require a valid API key. The administrator password must be changed from the default bootstrap value before management operations proceed. Failed administrator logins are rate limited.\n\n## Verification\n\nReview changes for secret-bearing paths and run `git status --short` before committing. Validate only the presence, permissions, and mounting of secret files; do not print their contents.\n",
+    "status": "current",
+    "title": "Credential and persistent-state handling",
+    "type": "reference"
+  },
+  {
+    "anchor_count": 0,
+    "code_anchors": [],
+    "excerpt": "# Upstream synchronization and push safety ## Scope This repository normally synchronizes the current local branch with the explicitly selected branch on `origin`. Synchronization and pushes require user authorization; a configured remote or authenticated GitHub account does not grant that authority by itself. ## Before integrating remote updates Check `git status --short --branch`, the selected remote URL, and the current branch. Run `git fetch --prune <remote>`, inspect divergence, and revi...",
+    "path": ".codex/wiki/reference/upstream-synchronization.md",
+    "related_files": [
+      {
+        "path": "AGENTS.md",
+        "role": "related"
+      }
+    ],
+    "scope": "repository-operating-docs",
+    "search_text": "Upstream synchronization and push safety\nreference\ncurrent\nrepository-operating-docs\n{\"title\": \"Upstream synchronization and push safety\", \"type\": \"reference\", \"status\": \"current\", \"scope\": \"repository-operating-docs\", \"related_scopes\": [], \"related_files\": [\"AGENTS.md\"], \"source_docs\": [\"AGENTS.md\"], \"tags\": [\"git\", \"upstream\", \"synchronization\"], \"last_checked\": \"2026-07-18\", \"updated\": \"2026-07-18T08:45:00Z\"}\nAGENTS.md related\n\n\n# Upstream synchronization and push safety\n\n## Scope\n\nThis repository normally synchronizes the current local branch with the explicitly selected branch on `origin`. Synchronization and pushes require user authorization; a configured remote or authenticated GitHub account does not grant that authority by itself.\n\n## Before integrating remote updates\n\nCheck `git status --short --branch`, the selected remote URL, and the current branch. Run `git fetch --prune <remote>`, inspect divergence, and review the incoming commits and diff. Do not automatically stash, discard, reset, or rebase local work to make an update apply.\n\nIntegrate only the intended remote branch. Prefer a fast-forward update. When a local modification or conflict blocks the update, retain the worktree and stop for review instead of forcing an integration.\n\n## Before pushing combined work\n\nRun the validation required for the complete combined change, then inspect the resulting status and diff. Confirm the target remote and branch, active GitHub account, and write access just before using a normal push. Do not use force-push unless separately and explicitly authorized after verifying the target ref.\n\n## Verification\n\nFor documentation-only changes, run `git diff --check`, `ok-skill run wiki-note rebuild`, `ok-skill run wiki-note lint`, `ok-skill run wiki-note doctor --stale-refs --json`, and `ok-skill run wiki-note surface-check --json`. Confirm the branch is synchronized after the push with `git status --short --branch`.\n",
+    "status": "current",
+    "title": "Upstream synchronization and push safety",
+    "type": "reference"
+  }
+]

@@ -1,0 +1,120 @@
+{
+  ".gitignore": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/decisions/local-compose-overrides.md"
+    ],
+    "symbols": {}
+  },
+  "AGENTS.md": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/reference/upstream-synchronization.md"
+    ],
+    "symbols": {}
+  },
+  "Dockerfile": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/debugging/docker-web-assets.md",
+      ".codex/wiki/decisions/local-compose-overrides.md",
+      ".codex/wiki/how-to/container-operation.md"
+    ],
+    "symbols": {}
+  },
+  "README.md": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/how-to/container-operation.md"
+    ],
+    "symbols": {}
+  },
+  "cmd/server/main.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
+    ],
+    "symbols": {}
+  },
+  "docker-compose.yml": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/decisions/local-compose-overrides.md",
+      ".codex/wiki/how-to/container-operation.md",
+      ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "internal/auth/cache.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md",
+      ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "internal/chathub/client.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/admin_security.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/keys.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/security_http.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/debugging/docker-web-assets.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/server.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/concepts/gateway-architecture.md"
+    ],
+    "symbols": {}
+  },
+  "internal/web/sessions.go": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/reference/credential-and-state-handling.md"
+    ],
+    "symbols": {}
+  },
+  "web": {
+    "anchors": [],
+    "definition_pages": [],
+    "pages": [
+      ".codex/wiki/debugging/docker-web-assets.md",
+      ".codex/wiki/how-to/container-operation.md"
+    ],
+    "symbols": {}
+  }
+}

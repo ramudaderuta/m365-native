@@ -186,6 +186,13 @@ go vet ./...
 go build ./...
 ```
 
+## Project knowledge
+
+Detailed architecture, deployment, security, and troubleshooting notes for
+maintainers are in the local [project wiki](.codex/wiki/index.md). It contains
+no credentials; keep account caches, API keys, and password files out of both
+the wiki and the repository.
+
 ## Security notes
 
 - Bind to localhost by default.
