@@ -54,6 +54,7 @@ type runtimeSettings struct {
 	TokenCachePath      string         `json:"tokenCachePath"`
 	SessionCachePath    string         `json:"sessionCachePath"`
 	OutboundProxy       string         `json:"outboundProxy"`
+	ProxyPool           []string       `json:"proxyPool,omitempty"`
 	ClientID            string         `json:"clientId"`
 	Authority           string         `json:"authority"`
 	RedirectURI         string         `json:"redirectUri"`
@@ -88,6 +89,9 @@ func defaultRuntimeSettings() runtimeSettings {
 	}
 }
 func settingsPath() string {
+	if dir := strings.TrimSpace(os.Getenv("M365_DATA_DIR")); dir != "" {
+		return filepath.Join(dir, "settings.json")
+	}
 	if p := strings.TrimSpace(os.Getenv("M365_SETTINGS_FILE")); p != "" {
 		return p
 	}
@@ -143,6 +147,11 @@ func validateSettings(v runtimeSettings) error {
 	if err := outbound.ValidateProxyURL(v.OutboundProxy); err != nil {
 		return err
 	}
+	for _, proxyURL := range v.ProxyPool {
+		if err := outbound.ValidateProxyURL(strings.TrimSpace(proxyURL)); err != nil {
+			return err
+		}
+	}
 	seen := make(map[string]struct{}, len(v.ModelMappings))
 	for _, mapping := range v.ModelMappings {
 		model := strings.TrimSpace(mapping.PublicModel)
@@ -186,7 +195,7 @@ func (s *settingsStore) save(v runtimeSettings) error {
 func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		jsonOut(w, map[string]any{"settings": s.settings.get(), "codexModels": configurableCodexModels, "upstreamTones": knownUpstreamTones(), "restartRequiredFields": []string{"listenAddress", "configPath", "tokenCachePath", "sessionCachePath", "outboundProxy", "clientId", "authority", "redirectUri", "scope", "debugLogPath"}})
+		jsonOut(w, map[string]any{"settings": s.settings.get(), "codexModels": configurableCodexModels, "upstreamTones": knownUpstreamTones(), "restartRequiredFields": []string{"listenAddress", "configPath", "tokenCachePath", "sessionCachePath", "outboundProxy", "proxyPool", "clientId", "authority", "redirectUri", "scope", "debugLogPath"}})
 	case http.MethodPut:
 		var v runtimeSettings
 		if json.NewDecoder(r.Body).Decode(&v) != nil {
@@ -194,6 +203,10 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if e := s.settings.save(v); e != nil {
+			writeOpenAIError(w, 400, "invalid_request_error", e.Error())
+			return
+		}
+		if e := outbound.ConfigurePool(v.ProxyPool); e != nil {
 			writeOpenAIError(w, 400, "invalid_request_error", e.Error())
 			return
 		}
@@ -211,6 +224,41 @@ func configuredToolCallLimit(s *settingsStore) int {
 	}
 	return s.get().MaxToolCallsPerTurn
 }
+
+// adaptiveToolCallLimit permits parallel calls only when every call is a
+// read-only, independently addressable operation. Any write, execution,
+// mutation, or ambiguous tool is serialized conservatively.
+func adaptiveToolCallLimit(c []detectedToolCall, configured int) int {
+	if len(c) < 2 || configured < 2 {
+		return 1
+	}
+	for _, call := range c {
+		name := strings.ToLower(strings.TrimSpace(call.Name))
+		if name == "" || toolLooksMutating(name) || !toolLooksReadOnly(name) {
+			return 1
+		}
+	}
+	return configured
+}
+
+func toolLooksMutating(name string) bool {
+	for _, word := range []string{"exec", "shell", "command", "write", "edit", "update", "delete", "remove", "move", "rename", "create", "patch", "apply", "install", "run"} {
+		if strings.Contains(name, word) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolLooksReadOnly(name string) bool {
+	for _, word := range []string{"read", "list", "search", "find", "get", "fetch", "browser", "lookup", "inspect", "stat", "status", "describe", "info"} {
+		if strings.Contains(name, word) {
+			return true
+		}
+	}
+	return false
+}
+
 func limitToolCalls(c []detectedToolCall, n int) []detectedToolCall {
 	if n < 1 {
 		n = 1
@@ -228,7 +276,7 @@ func currentSettings() runtimeSettings { return openSettingsStore().get() }
 // always win over values saved from the web console.
 func ApplyStartupSettingsEnv() {
 	s := openSettingsStore().get()
-	values := map[string]string{"M365_LISTEN": s.ListenAddress, "M365_CONFIG": s.ConfigPath, "M365_TOKEN_CACHE": s.TokenCachePath, "M365_SESSION_CACHE": s.SessionCachePath, outbound.EnvProxy: s.OutboundProxy, "M365_CLIENT_ID": s.ClientID, "M365_AUTHORITY": s.Authority, "M365_REDIRECT_URI": s.RedirectURI, "M365_SCOPE": s.Scope, "M365_DEBUG_LOG": s.DebugLogPath}
+	values := map[string]string{"M365_LISTEN": s.ListenAddress, "M365_CONFIG": s.ConfigPath, "M365_TOKEN_CACHE": s.TokenCachePath, "M365_SESSION_CACHE": s.SessionCachePath, outbound.EnvProxy: s.OutboundProxy, "M365_PROXY_POOL": strings.Join(s.ProxyPool, "\n"), "M365_CLIENT_ID": s.ClientID, "M365_AUTHORITY": s.Authority, "M365_REDIRECT_URI": s.RedirectURI, "M365_SCOPE": s.Scope, "M365_DEBUG_LOG": s.DebugLogPath}
 	for k, v := range values {
 		if _, exists := os.LookupEnv(k); !exists && strings.TrimSpace(v) != "" {
 			_ = os.Setenv(k, v)

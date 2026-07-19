@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"m365-native/internal/outbound"
 	"mime/multipart"
 	"net/http"
@@ -124,6 +125,8 @@ func (c *Client) ChatWithDelta(ctx context.Context, acc Account, req Request, on
 }
 
 func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request, onDelta func(string) error, onEvent StreamHandler) (Result, error) {
+	startedAt := time.Now()
+	log.Printf("chathub timing start prompt_len=%d", len(req.Text))
 	if acc.AccessToken == "" || acc.OID == "" || acc.TID == "" {
 		return Result{}, fmt.Errorf("missing access token / oid / tid")
 	}
@@ -152,7 +155,9 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 		return Result{}, err
 	}
 
+	dialStarted := time.Now()
 	conn, _, err := c.Dialer.DialContext(ctx, wsURL, c.HTTPHeader.Clone())
+	log.Printf("chathub timing ws_dial_ms=%d total_ms=%d", time.Since(dialStarted).Milliseconds(), time.Since(startedAt).Milliseconds())
 	if err != nil {
 		return Result{}, fmt.Errorf("ws dial: %w", err)
 	}
@@ -169,6 +174,7 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 	}
 
 	payload := chatPayload(req.Text, req.SessionID, req.ConversationID, requestID, req.Tone, firstTurn, req.Attachments, req.Tools, req.ToolChoice)
+	log.Printf("chathub prompt-trace text=%d tools=%d payload=%d", len(req.Text), len(req.Tools), len(payload))
 	if c.Trace != nil {
 		meta := map[string]any{"stage": "chathub_payload", "attachment_count": len(req.Attachments), "payload_has_attachments": strings.Contains(payload, `"attachments"`), "attachments": []map[string]any{}}
 		for _, a := range req.Attachments {
@@ -176,6 +182,8 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 		}
 		c.Trace(meta)
 	}
+	log.Printf("chathub timing handshake_ms=%d", time.Since(dialStarted).Milliseconds())
+	payloadSentAt := time.Now()
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(payload)); err != nil {
 		return Result{}, fmt.Errorf("chat send: %w", err)
 	}
@@ -185,6 +193,9 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 	emitDelta := func(d string) error {
 		if d == "" {
 			return nil
+		}
+		if streamedText == "" {
+			log.Printf("chathub timing first_delta_ms=%d len=%d", time.Since(payloadSentAt).Milliseconds(), len(d))
 		}
 		streamedText += d
 		if onDelta != nil {
@@ -327,6 +338,7 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 					return Result{}, fmt.Errorf("chathub completion error: %v", errObj)
 				}
 				// end of stream
+				log.Printf("chathub timing completion_frame_ms=%d streamed_text=%d events=%d", time.Since(payloadSentAt).Milliseconds(), len(streamedText), len(events))
 				text := final
 				if text == "" {
 					text = strings.Join(deltas, "")

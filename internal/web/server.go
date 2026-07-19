@@ -81,9 +81,15 @@ func (s *Server) Routes() http.Handler {
 	m.HandleFunc("/api/admin/change-password", s.adminChangePassword)
 	m.HandleFunc("/api/admin/keys", s.adminKeys)
 	m.HandleFunc("/api/admin/settings", s.adminSettings)
+	m.HandleFunc("/api/admin/proxy-pool", s.proxyPool)
+	m.HandleFunc("/api/admin/deployments", s.deployments)
+	m.HandleFunc("/api/admin/deployment", s.deploymentAction)
+	m.HandleFunc("/api/admin/deployment/check", s.deploymentCheck)
 	m.HandleFunc("/api/admin/debug/logs", s.debugList)
 	m.HandleFunc("/api/admin/debug/detail", s.debugDetail)
 	m.HandleFunc("/api/health", s.health)
+	m.HandleFunc("/api/version", s.version)
+	m.HandleFunc("/api/update", s.update)
 	m.HandleFunc("/api/accounts", s.accounts)
 	m.HandleFunc("/api/accounts/refresh", s.refreshAccount)
 	m.HandleFunc("/api/accounts/delete", s.deleteAccount)
@@ -100,7 +106,7 @@ func (s *Server) Routes() http.Handler {
 	m.HandleFunc("/v1/messages", s.anthropicMessages)
 	m.HandleFunc("/v1/images/generations", s.imageGenerations)
 	m.HandleFunc("/", s.rootPage)
-	return requestID(securityHeaders(s.adminMiddleware(s.debugMiddleware(m))))
+	return requestID(httpTrace(securityHeaders(s.adminMiddleware(s.debugMiddleware(m)))))
 }
 
 func (s *Server) adminMiddleware(next http.Handler) http.Handler {
@@ -695,6 +701,15 @@ func normalizeLegacyTools(body *oaiReq) {
 }
 
 func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
+	requestID := requestIDFrom(r)
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	startedAt := time.Now()
+	log.Printf("[req-trace] id=%s stage=http_start stream=%t", requestID, r.URL.Query().Get("stream") == "true")
+	defer func() {
+		log.Printf("[req-trace] id=%s stage=http_return total_ms=%d", requestID, time.Since(startedAt).Milliseconds())
+	}()
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -721,6 +736,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizeLegacyTools(&body)
+	log.Printf("[req-trace] id=%s stage=body_parsed messages=%d tools=%d choice=%s raw_bytes=%d", requestID, len(body.Messages), len(body.Tools), normalizedToolChoiceMode(body.ToolChoice), len(raw))
 	if err := validateToolConversation(body.Messages); err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "tool_protocol_error", err.Error())
 		return
@@ -740,6 +756,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 	// history, and the current user turn distinguishable.
 	var prompt string
 	prompt, body.Attachments = flattenPromptMessages(body.Messages, body.Attachments)
+	log.Printf("[req-trace] id=%s stage=prompt_flattened prompt_len=%d attachments=%d", requestID, len(prompt), len(body.Attachments))
 	fmt.Printf("[multimodal-entry] messages=%d attachments=%d prompt_len=%d\n", len(body.Messages), len(body.Attachments), len(prompt))
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
@@ -802,7 +819,9 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		// no tool; this prevents a natural-language preamble from becoming a
 		// completed assistant turn with the actual call lost.
 		routePrompt := modelToolRouterPrompt(prompt+"\n"+ledger.RouterContext(), toolMaps, body.ToolChoice)
+		log.Printf("[req-trace] id=%s stage=router_start prompt_len=%d", requestID, len(routePrompt))
 		routeRes, routeErr := s.chat.Chat(ctx, account, chathub.Request{Text: routePrompt, Tone: tone, Attachments: body.Attachments})
+		log.Printf("[req-trace] id=%s stage=router_return elapsed_ms=%d err=%t", requestID, time.Since(startedAt).Milliseconds(), routeErr != nil)
 		if routeErr != nil {
 			http.Error(w, "tool router: "+routeErr.Error(), http.StatusBadGateway)
 			return
@@ -814,7 +833,6 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			if repairErr == nil {
 				calls, parsed = parseModelToolDecision(repairRes.Text, toolMaps, body.ToolChoice)
 				calls = filterCompletedCalls(calls, ledger)
-				calls = filterCompletedCalls(calls, ledger)
 			}
 		}
 		if parsed && len(calls) > 0 {
@@ -822,7 +840,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			for i := range calls {
 				calls[i].ID = scopedCallID(calls[i].Name, string(calls[i].Arguments), i, scope)
 			}
-			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+			calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
 			if body.SessionKey != "" {
 				s.sessions.upsert(conversation{ID: body.SessionKey, AccountID: acc.ID, ConversationID: routeRes.ConversationID, SessionID: routeRes.SessionID, Title: prompt})
 			}
@@ -832,6 +850,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Stream {
 		answerPrompt := prompt + "\n" + ledger.RouterContext() + "\nFINAL ANSWER RULE: Answer the user directly. If a tool is explicitly required, emit its structured call; otherwise return ordinary text."
+		log.Printf("[req-trace] id=%s stage=answer_start prompt_len=%d", requestID, len(answerPrompt))
 		answerReq := chathub.Request{Text: answerPrompt, Tone: tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments, Tools: body.Tools, ToolChoice: body.ToolChoice}
 		id := "chatcmpl-" + uuid.NewString()
 		model := firstNonEmpty(body.Model, "m365-copilot")
@@ -910,7 +929,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			calls = fencedToolCalls(text.String(), toolMaps, body.ToolChoice)
 		}
 		if len(calls) > 0 {
-			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+			calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
 			_ = writeToolResponse(w, id, model, true, calls, chathub.Result{Text: text.String()}, true)
 			return
 		}
@@ -945,7 +964,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			for i := range calls {
 				calls[i].ID = scopedCallID(calls[i].Name, string(calls[i].Arguments), i, scope)
 			}
-			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+			calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
 			_ = writeToolResponse(w, "chatcmpl-"+uuid.NewString(), firstNonEmpty(body.Model, "m365-copilot"), body.Stream, calls, routeRes, streamPrimed)
 			return
 		}
@@ -963,7 +982,7 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 					for i := range calls {
 						calls[i].ID = scopedCallID(calls[i].Name, string(calls[i].Arguments), i, scope)
 					}
-					calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+					calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
 					_ = writeToolResponse(w, "chatcmpl-"+uuid.NewString(), firstNonEmpty(body.Model, "m365-copilot"), body.Stream, calls, retryRes, streamPrimed)
 					return
 				}
@@ -1037,14 +1056,38 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 	}
 	id := "chatcmpl-" + uuid.NewString()
 	if calls := fencedToolCalls(res.Text, toolMaps, body.ToolChoice); len(calls) > 0 {
-		calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+		calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
 		_ = writeToolResponse(w, id, model, body.Stream, calls, res)
 		return
 	}
 	if calls := nativeToolCalls(res.Events, body.Tools); len(calls) > 0 {
-		calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
+		calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
 		_ = writeToolResponse(w, id, model, body.Stream, calls, res)
 		return
+	}
+	// Recover natural-language tool intent when native mode emits no
+	// structured ChatHub tool event. Plain text remains a zero-call result.
+	if planningMode == "native" && len(toolMaps) > 0 && fmt.Sprint(body.ToolChoice) != "none" {
+		routePrompt := modelToolRouterPrompt(prompt+"\n"+ledger.RouterContext(), toolMaps, body.ToolChoice)
+		routeRes, routeErr := s.chat.Chat(ctx, account, chathub.Request{Text: routePrompt, Tone: tone, Attachments: body.Attachments})
+		if routeErr == nil {
+			calls, parsed := parseModelToolDecision(routeRes.Text, toolMaps, body.ToolChoice)
+			if !parsed {
+				repairRes, repairErr := s.chat.Chat(ctx, account, chathub.Request{Text: `Repair this tool routing output into JSON only with shape {"calls":[{"name":"function_name","arguments":{}}]}. Use {"calls":[]} if no tool is needed. OUTPUT:\n` + compactToolResult(routeRes.Text, 6000), Tone: tone, Attachments: body.Attachments})
+				if repairErr == nil {
+					calls, parsed = parseModelToolDecision(repairRes.Text, toolMaps, body.ToolChoice)
+				}
+			}
+			if parsed && len(calls) > 0 {
+				scope := fmt.Sprintf("%d:%v:native-recovery", len(body.Messages), completedCallIDs(ledger))
+				for i := range calls {
+					calls[i].ID = scopedCallID(calls[i].Name, string(calls[i].Arguments), i, scope)
+				}
+				calls = limitToolCalls(calls, adaptiveToolCallLimit(calls, configuredToolCallLimit(s.settings)))
+				_ = writeToolResponse(w, id, model, body.Stream, calls, routeRes)
+				return
+			}
+		}
 	}
 	if !completionEvidenceAllows(res.Text, ledger) {
 		res.Text = "I cannot confirm completion because no matching tool results were returned. No external action has been verified."
